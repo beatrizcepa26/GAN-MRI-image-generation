@@ -535,7 +535,7 @@ def main():
     
    
    
-    '''Some display and output extensions are necessary only for one worker,Otherwise, there would just be repeated outputs'''
+    '''Some display and output extensions are necessary only for one worker, otherwise, there would just be repeated outputs'''
     if comm.rank == 0:
         snapshot_interval = (args.snapshot_interval, 'iteration')
         display_interval = (args.display_interval, 'iteration')
