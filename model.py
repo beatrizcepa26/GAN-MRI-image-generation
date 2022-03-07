@@ -303,34 +303,12 @@ def main():
     def make_optimizer(model, comm, alpha=0.0002, beta1=0.5):
 
         # Create a multi node optimizer from a standard Chainer optimizer.
-        
-        '''chainer.optimizers.Adam(alpha=float, beta1=float) -> adam optimizer
-        -alpha - Coefficient of learning rate
-        -beta1 - Exponential decay rate of the first order moment. 
-        
-        create_multi_node_optimizer() receives a standard Chainer optimizer, and it returns a new optimizer.
-        The returned optimizer is called multi-node optimizer. It behaves exactly same as the supplied original 
-        standard optimizer, except that it communicates model parameters and gradients properly in a multi-node setting.'''
+
         optimizer = chainermn.create_multi_node_optimizer(
             chainer.optimizers.Adam(alpha=alpha, beta1=beta1), comm)
-        
-        
-        '''setup(link) is a method from the Optimizer class that sets a target link and 
-        initializes the optimizer states.'''
+
         optimizer.setup(model)
         
-        
-        '''add_hook(hook, name=None, timing='auto') is a method from the Optimizer class 
-        that registers a hook function. Hook function is typically called right after the 
-        gradient computation, though the timing depends on the optimization method, and 
-        the timing attribute.
-        -hook (callable) – Hook function.
-        -name (str) – Name of the registration. If omitted, hook.name is used by default.
-        
-        chainer.optimizer_hooks.WeightDecay(rate) is the Optimizer/UpdateRule hook 
-            function for weight decay regularization. This hook function adds a scaled 
-            parameter to the corresponding gradient. It can be used as a regularization.
-            -rate (float) – Coefficient for the weight decay.'''
         optimizer.add_hook(chainer.optimizer.WeightDecay(0.0001), 'hook_dec')
         return optimizer
         
@@ -344,18 +322,6 @@ def main():
     # Datasets of worker 0 are evenly split and distributed to all workers.
     if comm.rank == 0:
         if args.dataset == '':
-            ''' Load the CIFAR10 dataset if args.dataset is not specified
-            
-            chainer.datasets.get_cifar10(withlabel=bool, ndim=int, scale=float, dtype=None)
-            -withlabel(bool) – if True, it returns datasets with labels. In this case, each example 
-            is a tuple of an image and a label. Otherwise, the datasets only contain images.
-            -ndim (int) – number of dimensions of each image.
-            -scale (float) – Pixel value scale.
-            
-            CIFAR-10 is a set of small natural images. Each example is an RGB color image of size 32x32. 
-            In the original images, each of R, G, B of pixels is represented by one-byte unsigned integer 
-            (i.e. from 0 to 255). This function changes the scale of pixel values into [0, scale] float 
-            values.'''
             train, _ = chainer.datasets.get_cifar10(withlabel=False,
                                                     scale=255.)
         else:
@@ -368,9 +334,6 @@ def main():
     else:
         train = None
 
-    '''chainermn.scatter_dataset() scatters the dataset of the specified root worker (by default, the worker whose 
-    comm.rank is 0) to all workers. The given dataset of other workers are ignored. The dataset is split into sub 
-    datasets of equal sizes, by duplicating some elements if necessary, and scattered to the workers.'''
     train = chainermn.scatter_dataset(train, comm)
 
         
@@ -380,15 +343,6 @@ def main():
     
     
     # Setup an updater
-    '''iterator, optimizer and device are parameters of the chainer.training.updaters.StandardUpdater
-    -iterator – Dataset iterator for the training dataset
-    -optimizer – Optimizer to update parameters
-    -device (device specifier) – Device to which the model is sent
-    
-    
-    the optimizer argument takes a dictionary. As the two different models require two different 
-    optimizers, to specify the different optimizers for the models we give a dictionary, 
-    {'gen': opt_gen, 'dis': opt_dis}, to the optimizer argument'''
     updater = DCGANUpdater(
         models=(gen, dis),
         iterator=train_iter,
@@ -399,52 +353,16 @@ def main():
     
     
     # Setup a trainer
-    
-    '''chainer.training.Trainer(updater, stop_trigger=None, out='result', extensions=None) -> standard 
-    training loop in Chainer. Trainer is an implementation of a training loop.
-    -updater (Updater) – Updater object. It defines how to update the models.
-    -stop_trigger – Trigger that determines when to stop the training loop. If it is not callable, it 
-    is passed to IntervalTrigger. In most cases, IntervalTrigger is used, in which case users can simply 
-    specify a tuple of the interval length and its unit, like (1000, 'iteration') or (1, 'epoch').
-    -out – Output directory.
-    -extensions – Extensions registered to the trainer. Extensions are callable objects that take the 
-    trainer object as the argument. Users can register extensions to the trainer by calling the extend()
-    method, where some configurations can be added.'''
     trainer = training.Trainer(updater, (args.epoch, 'epoch'), out=args.out)
     
    
    
-    '''Some display and output extensions are necessary only for one worker,Otherwise, there would just be repeated outputs'''
+    '''Some display and output extensions are necessary only for one worker, otherwise, there would just be repeated outputs'''
     if comm.rank == 0:
         snapshot_interval = (args.snapshot_interval, 'iteration')
         display_interval = (args.display_interval, 'iteration')
         
         
-        
-        ''' Save only model parameters. 'snapshot' extension will save all the trainer module's attribute,
-        including 'train_iter. However, 'train_iter' depends on scattered dataset, which means that 'train_iter'
-        may be different in each process. Here, instead of saving whole trainer module, only the network models
-        are saved'''
-
-
-        '''extend(extension, name=None, trigger=None, priority=None, *, call_before_training=False, **kwargs)
-        -extension – Extension to register.
-        -name (str) – Name of the extension. If it is omitted, the Extension.name attribute of the extension
-        is used or the Extension.default_name attribute of the extension if name is is set to None or is 
-        undefined. Note that the name would be suffixed by an ordinal in case of duplicated names.
-        -trigger (tuple or Trigger) – Trigger object that determines when to invoke the extension. If the 
-        trigger is not callable, it is passed to IntervalTrigger to build an interval trigger. 
-        -call_before_training (bool) – Flag to call extension before training. Default is False.
-        -priority (int) – Invocation priority of the extension. Extensions are invoked in the descending order 
-        of priorities in each iteration. If this is None, extension.priority is used instead.
-        
-        chainer.training.extensions.snapshot_object(target, filename) -> Returns a trainer extension to take
-        snapshots of a given object. This extension is called once per epoch by default. To take a snapshot at a 
-        different interval, a trigger object specifying the required interval can be passed along with 
-        this extension to the extend() method of the trainer. The default priority is -100, which is lower 
-        than that of most built-in extensions.
-        -target – Object to serialize.
-        -filename (str) – Name of the file into which the object is serialized.'''
         trainer.extend(extensions.snapshot_object(
             gen, 'gen_iter_{.updater.iteration}.npz'),
             trigger=snapshot_interval)
@@ -452,27 +370,12 @@ def main():
             dis, 'dis_iter_{.updater.iteration}.npz'),
             trigger=snapshot_interval)
 
-
-        '''chainer.training.extensions.LogReport(trigger=(1, 'epoch')) -> Trainer extension to output the 
-        accumulated results to a log file.
-        -trigger – Trigger that decides when to aggregate the result and output the values. This is 
-        distinct from the trigger of this extension itself. If it is a tuple in the form <int>, 'epoch' or 
-        <int>, 'iteration', it is passed to IntervalTrigger.'''
         trainer.extend(extensions.LogReport(trigger=display_interval))
 
-
-        '''chainer.training.extensions.PrintReport(entries) -> Trainer extension to print the accumulated 
-        results. This extension uses the log accumulated by a LogReport extension to print specified entries
-        of the log in a human-readable format.
-        -entries (list of str) – List of keys of observations to print.'''
         trainer.extend(extensions.PrintReport([
             'epoch', 'iteration', 'gen/loss', 'dis/loss', 'elapsed_time',
         ]), trigger=display_interval)
 
-
-        '''chainer.training.extensions.ProgressBar(update_interval=int) -> Trainer extension to print a 
-        progress bar and recent training status. This extension prints a progress bar at every call. It 
-        watches the current iteration and epoch to print the bar.'''
         trainer.extend(extensions.ProgressBar(update_interval=10))
         
         
@@ -485,9 +388,6 @@ def main():
 
 
     # Start the training using pre-trained model, saved by snapshot_object
-    '''chainer.serializers.load_npz(file, obj) -> Loads an object from the file in NPZ format.
-        -file (str or file-like) – File to be loaded.
-        -obj – Object to be deserialized.'''
     if args.gen_model:
         chainer.serializers.load_npz(args.gen_model, gen)
     if args.dis_model:
