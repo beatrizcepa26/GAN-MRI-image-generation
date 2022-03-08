@@ -59,7 +59,7 @@ class Generator(chainer.Chain):
             self.dc1 = L.Deconvolution2D(ch, ch // 2, 4, 2, 1, initialW=w)
             self.dc2 = L.Deconvolution2D(ch // 2, ch // 4, 4, 2, 1, initialW=w)
             self.dc3 = L.Deconvolution2D(ch // 4, ch // 8, 4, 2, 1, initialW=w)
-            self.dc4 = L.Deconvolution2D(ch // 8, 3, 3, 1, 1, initialW=w) 
+            self.dc4 = L.Deconvolution2D(ch // 8, 1, 3, 1, 1, initialW=w) # out_channels = 1 -> grayscale
             
             self.bn0 = L.BatchNormalization(bottom_width * bottom_width * ch)
             self.bn1 = L.BatchNormalization(ch // 2)
@@ -97,7 +97,7 @@ class Discriminator(chainer.Chain):
         
         with self.init_scope():
         
-            self.c0_0 = L.Convolution2D(3, ch // 8, 3, 1, 1, initialW=w)
+            self.c0_0 = L.Convolution2D(1, ch // 8, 3, 1, 1, initialW=w) # in_channels = 1 -> grayscale
             self.c0_1 = L.Convolution2D(ch // 8, ch // 4, 4, 2, 1, initialW=w)
             self.c1_0 = L.Convolution2D(ch // 4, ch // 4, 3, 1, 1, initialW=w)
             self.c1_1 = L.Convolution2D(ch // 4, ch // 2, 4, 2, 1, initialW=w)
@@ -207,13 +207,13 @@ def out_generated_image(gen, dis, rows, cols, seed, dst):
     
         _, _, H, W = x.shape
         
-        x = x.reshape((rows, cols, 3, H, W))
+        x = x.reshape((rows, cols, 1, H, W)) # 1 colour channel -> grayscale
         x = x.transpose(0, 3, 1, 4, 2)
-        x = x.reshape((rows * H, cols * W, 3))
+        x = x.reshape((rows * H, cols * W, 1)) # 1 colour channel -> grayscale
 
-        preview_dir = '{}/preview'.format(dst)
+        preview_dir = '{}/preview'.format(dst) # '%s/preview' %dst
         preview_path = preview_dir +\
-            '/image{:0>8}.png'.format(trainer.updater.iteration)
+            '/image{:0>8}.dcm'.format(trainer.updater.iteration) # DICOM image
         if not os.path.exists(preview_dir):
             os.makedirs(preview_dir)
         Image.fromarray(x).save(preview_path)
@@ -234,7 +234,7 @@ def main():
     parser.add_argument('--gpu', '-g', action='store_true',
                         help='Use GPU')
     parser.add_argument('--dataset', '-i', default='',
-                        help='Directory of image files.  Default is cifar-10.')
+                        help='Directory of image files. Default is cifar-10.')
     parser.add_argument('--out', '-o', default='result',
                         help='Directory to output the result')
     parser.add_argument('--gen_model', '-r', default='',
@@ -325,8 +325,9 @@ def main():
             train, _ = chainer.datasets.get_cifar10(withlabel=False,
                                                     scale=255.)
         else:
+            # 256x256 -> Users\user\Desktop\imgs\1
             all_files = os.listdir(args.dataset)
-            image_files = [f for f in all_files if ('png' in f or 'jpg' in f)]
+            image_files = [f for f in all_files if ('dcm' in f)] # DICOM images
             print('{} contains {} image files'
                   .format(args.dataset, len(image_files)))
             train = chainer.datasets\
