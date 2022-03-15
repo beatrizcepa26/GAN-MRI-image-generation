@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 import math
 import numpy as np
 
@@ -9,7 +7,7 @@ from chainer import backends
 from chainer.backends import cuda
 from chainer import Function, FunctionNode, gradient_check, report, training, utils, Variable
 from chainer import datasets, initializers, iterators, optimizers, serializers
-from chainer import Link, Chain, ChainList
+from chainer import Link, Chain, ChainList, Sequential
 import chainer.functions as F
 import chainer.links as L
 from chainer.training import extensions
@@ -22,23 +20,18 @@ import warnings
 
 from PIL import Image
 
-import chainermn
-
 
 
 def add_noise(device, h, sigma=0.2):
     # Add some noise to every intermediate outputs of D before giving them to the next layers
     
-    if chainer.config.train: # if the code is running in the training mode
-        xp = device.xp # .xp gets the array module of the device's data array
+    if chainer.config.train: 
+        xp = device.xp 
        
-        # TODO(niboshi): Support random.randn in ChainerX
+        # TODO(niboshi): Support random.randn in ChainerX (?)
         
         if device.xp is chainerx:
             fallback_device = device.fallback_device
-            
-            ''' chainer.using_device(dev_spec) -> context manager to apply the thread-local device state
-            The parameter is the device specifier.'''
             with chainer.using_device(fallback_device): 
                 randn = device.send(fallback_device.xp.random.randn(*h.shape))
         else:
@@ -50,61 +43,54 @@ def add_noise(device, h, sigma=0.2):
 
 
 class Generator(chainer.Chain):
-
+    
     def __init__(self, n_hidden, bottom_width=4, ch=1024, wscale=0.02):
         
         super(Generator, self).__init__()
         self.n_hidden = n_hidden
-        self.ch = ch # number of channels -> if ch=1024 the network is same as the above image
-        self.bottom_width = bottom_width # width and height
+        self.ch = ch 
+        self.bottom_width = bottom_width 
 
         with self.init_scope(): 
-            
-            # chainer.initializers.Normal initializes array with a normal distribution -> w
             w = chainer.initializers.Normal(wscale)
             
-
-            self.l0 = L.Linear(self.n_hidden, bottom_width * bottom_width * ch,
-                               initialW=w) # output of chainer.links.Linear is 1D
-            
-            self.dc1 = L.Deconvolution2D(ch, ch // 2, 4, 2, 1, initialW=w)
-            self.dc2 = L.Deconvolution2D(ch // 2, ch // 4, 4, 2, 1, initialW=w)
-            self.dc3 = L.Deconvolution2D(ch // 4, ch // 8, 4, 2, 1, initialW=w)
-            self.dc4 = L.Deconvolution2D(ch // 8, 3, 3, 1, 1, initialW=w) # out_channels = 3 (??)
-            
-            
-            # the parameter on BatchNormalization is the size (or shape) of channel dimensions
-            self.bn0 = L.BatchNormalization(bottom_width * bottom_width * ch)
-            self.bn1 = L.BatchNormalization(ch // 2)
-            self.bn2 = L.BatchNormalization(ch // 4)
-            self.bn3 = L.BatchNormalization(ch // 8)
+            model= chainer.Sequential(
+                L.Linear(self.n_hidden, bottom_width * bottom_width * ch,
+                               initialW=w),
+                L.BatchNormalization(bottom_width * bottom_width * ch)
+                F.relu,
+                F.reshape(len(z), self.ch, self.bottom_width, self.bottom_width),
+                L.Deconvolution2D(ch, ch // 2, 4, 2, 1, initialW=w),
+                L.BatchNormalization(ch // 2),
+                F.relu,
+                L.Deconvolution2D(ch // 2, ch // 4, 4, 2, 1, initialW=w),
+                L.BatchNormalization(ch // 4),
+                F.relu,
+                L.Deconvolution2D(ch // 4, ch // 8, 4, 2, 1, initialW=w),
+                L.BatchNormalization(ch // 8),
+                F.relu,
+                L.Deconvolution2D(ch // 8, 1, 3, 1, 1, initialW=w), # out_channels = 1 -> grayscale
+                F.tanh            
+            )
 
     
     
     def make_hidden(self, batchsize):
-        # this fuction generates a uniform noise distribution Z
         
-        dtype = chainer.get_dtype() # get_dtype resolves Chainers default data type object
-        
+        dtype = chainer.get_dtype() 
         return np.random.uniform(-1, 1, (batchsize, self.n_hidden, 1, 1))\
             .astype(dtype)
 
     
     
     def forward(self, z):
-     
-        h = F.reshape(F.relu(self.bn0(self.l0(z))), 
-                      (len(z), self.ch, self.bottom_width, self.bottom_width))
-        h = F.relu(self.bn1(self.dc1(h)))
-        h = F.relu(self.bn2(self.dc2(h)))
-        h = F.relu(self.bn3(self.dc3(h)))
-        x = F.sigmoid(self.dc4(h))
+        # in this function, each layer is called and followed by relu, except the last layer (tanh)
+        x = model(z)
+
         return x
 
 
 
-
-# the discriminator network almost mirrors the Generator, but is deeper
 class Discriminator(chainer.Chain):
 
     def __init__(self, bottom_width=4, ch=1024, wscale=0.02):
@@ -112,8 +98,8 @@ class Discriminator(chainer.Chain):
         super(Discriminator, self).__init__()
         
         with self.init_scope():
-            
-            self.c0_0 = L.Convolution2D(3, ch // 8, 3, 1, 1, initialW=w)
+        
+            self.c0_0 = L.Convolution2D(1, ch // 8, 3, 1, 1, initialW=w) # in_channels = 1 -> grayscale
             self.c0_1 = L.Convolution2D(ch // 8, ch // 4, 4, 2, 1, initialW=w)
             self.c1_0 = L.Convolution2D(ch // 4, ch // 4, 3, 1, 1, initialW=w)
             self.c1_1 = L.Convolution2D(ch // 4, ch // 2, 4, 2, 1, initialW=w)
@@ -121,10 +107,8 @@ class Discriminator(chainer.Chain):
             self.c2_1 = L.Convolution2D(ch // 2, ch // 1, 4, 2, 1, initialW=w)
             self.c3_0 = L.Convolution2D(ch // 1, ch // 1, 3, 1, 1, initialW=w)
             
-            # chainer.links.Linear(in_size, out_size, initialW)
             self.l4 = L.Linear(bottom_width * bottom_width * ch, 1, initialW=w)
             
-            # if use_gamma is True, use scaling parameter. Otherwise, use unit(1) which makes no effect
             self.bn0_1 = L.BatchNormalization(ch // 4, use_gamma=False)
             self.bn1_0 = L.BatchNormalization(ch // 4, use_gamma=False)
             self.bn1_1 = L.BatchNormalization(ch // 2, use_gamma=False)
@@ -146,15 +130,14 @@ class Discriminator(chainer.Chain):
 
 
 
+
 class DCGANUpdater(chainer.training.updaters.StandardUpdater):
     
-
     def __init__(self, *args, **kwargs):
-        self.gen, self.dis = kwargs.pop('models') # an additional keyword argument 'models' is required
+        self.gen, self.dis = kwargs.pop('models') 
         super(DCGANUpdater, self).__init__(*args, **kwargs)
 
         
-    # discriminator loss
     def loss_dis(self, dis, y_fake, y_real):
         
         batchsize = len(y_fake)
@@ -169,9 +152,7 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
 
     
     
-    # generator loss
-    def loss_gen(self, gen, y_fake):
-        
+    def loss_gen(self, gen, y_fake):        
         batchsize = len(y_fake)
         loss = F.sum(F.softplus(-y_fake)) / batchsize
         chainer.report({'loss': loss}, gen)
@@ -181,7 +162,6 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
     
     def update_core(self):
         
-        # access model optimizers
         gen_optimizer = self.get_optimizer('gen')
         dis_optimizer = self.get_optimizer('dis')
         
@@ -190,24 +170,19 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
         
         device = self.device
         
-        # self.converter copies batch to the device
-        x_real = Variable(self.converter(batch, device)) / 255. # make it a Variable object
+        x_real = Variable(self.converter(batch, device)) / 255. 
 
         gen, dis = self.gen, self.dis
         batchsize = len(batch)
         
-        # output of D for the real samples
         y_real = dis(x_real)
 
-        # making the uniform noise distribution a Variable object
         z = Variable(device.xp.asarray(gen.make_hidden(batchsize)))
         
-        # output of G
         x_fake = gen(z)
         
-        # output of D for the synthetic sampleS
         y_fake = dis(x_fake)
-        
+    
         dis_optimizer.update(self.loss_dis, dis, y_fake, y_real)
         gen_optimizer.update(self.loss_gen, gen, y_fake)
 
@@ -220,28 +195,27 @@ def out_generated_image(gen, dis, rows, cols, seed, dst):
     def make_image(trainer):
         np.random.seed(seed)
         n_images = rows * cols
-        xp = gen.xp # .xp gets the array module of gen's data array
+        xp = gen.xp 
         z = Variable(xp.asarray(gen.make_hidden(n_images)))
         
         with chainer.using_config('train', False):
             x = gen(z)
         
-    
         x = chainer.backends.cuda.to_cpu(x.array)
         
         np.random.seed()
 
         x = np.asarray(np.clip(x * 255, 0.0, 255.0), dtype=np.uint8)
-        
+    
         _, _, H, W = x.shape
         
-        x = x.reshape((rows, cols, 3, H, W))
+        x = x.reshape((rows, cols, 1, H, W)) # 1 colour channel -> grayscale
         x = x.transpose(0, 3, 1, 4, 2)
-        x = x.reshape((rows * H, cols * W, 3))
+        x = x.reshape((rows * H, cols * W, 1)) # 1 colour channel -> grayscale
 
-        preview_dir = '{}/preview'.format(dst)
+        preview_dir = '{}/preview'.format(dst) # '%s/preview' %dst
         preview_path = preview_dir +\
-            '/image{:0>8}.png'.format(trainer.updater.iteration)
+            '/image{:0>8}.dcm'.format(trainer.updater.iteration) # DICOM image
         if not os.path.exists(preview_dir):
             os.makedirs(preview_dir)
         Image.fromarray(x).save(preview_path)
@@ -290,6 +264,8 @@ def main():
         #chainermn.create_communicator() creates a communicator (is in charge of communication between workers)
         comm = chainermn.create_communicator(args.communicator)
 
+        '''Workers in a node have to use different GPUs. For this purpose, intra_rank property of communicators is useful. 
+        Each worker in a node is assigned a unique intra_rank starting from zero.'''
         device = comm.intra_rank
     else:
         if args.communicator != 'naive':
@@ -329,10 +305,10 @@ def main():
     def make_optimizer(model, comm, alpha=0.0002, beta1=0.5):
 
         # Create a multi node optimizer from a standard Chainer optimizer.
-        
+
         optimizer = chainermn.create_multi_node_optimizer(
             chainer.optimizers.Adam(alpha=alpha, beta1=beta1), comm)
-        
+
         optimizer.setup(model)
         
         optimizer.add_hook(chainer.optimizer.WeightDecay(0.0001), 'hook_dec')
@@ -348,18 +324,19 @@ def main():
     # Datasets of worker 0 are evenly split and distributed to all workers.
     if comm.rank == 0:
         if args.dataset == '':
-            
             train, _ = chainer.datasets.get_cifar10(withlabel=False,
                                                     scale=255.)
         else:
+            # 256x256 -> Users\user\Desktop\imgs\1
             all_files = os.listdir(args.dataset)
-            image_files = [f for f in all_files if ('png' in f or 'jpg' in f)]
+            image_files = [f for f in all_files if ('dcm' in f)] # DICOM images
             print('{} contains {} image files'
                   .format(args.dataset, len(image_files)))
             train = chainer.datasets\
                 .ImageDataset(paths=image_files, root=args.dataset)
     else:
         train = None
+
     train = chainermn.scatter_dataset(train, comm)
 
         
@@ -382,6 +359,8 @@ def main():
     trainer = training.Trainer(updater, (args.epoch, 'epoch'), out=args.out)
     
    
+   
+    '''Some display and output extensions are necessary only for one worker, otherwise, there would just be repeated outputs'''
     if comm.rank == 0:
         snapshot_interval = (args.snapshot_interval, 'iteration')
         display_interval = (args.display_interval, 'iteration')
@@ -400,7 +379,6 @@ def main():
             'epoch', 'iteration', 'gen/loss', 'dis/loss', 'elapsed_time',
         ]), trigger=display_interval)
 
-
         trainer.extend(extensions.ProgressBar(update_interval=10))
         
         
@@ -413,7 +391,6 @@ def main():
 
 
     # Start the training using pre-trained model, saved by snapshot_object
-
     if args.gen_model:
         chainer.serializers.load_npz(args.gen_model, gen)
     if args.dis_model:
