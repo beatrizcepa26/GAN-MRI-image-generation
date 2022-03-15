@@ -32,6 +32,7 @@ class ImageDataset(Dataset):
     def lr_transform(self, image):
 
         x = F.resize_images(Image.BICUBIC, (hr_height // 4, hr_height // 4))
+        chainer.as_array(x)
         
 
 
