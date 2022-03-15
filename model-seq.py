@@ -54,7 +54,7 @@ class Generator(chainer.Chain):
         with self.init_scope(): 
             w = chainer.initializers.Normal(wscale)
             
-            model= chainer.Sequential(
+            model_G=chainer.Sequential(
                 L.Linear(self.n_hidden, bottom_width * bottom_width * ch,
                                initialW=w),
                 L.BatchNormalization(bottom_width * bottom_width * ch)
@@ -84,9 +84,8 @@ class Generator(chainer.Chain):
     
     
     def forward(self, z):
-        # in this function, each layer is called and followed by relu, except the last layer (tanh)
-        x = model(z)
 
+        x = model_G(z)
         return x
 
 
@@ -96,37 +95,47 @@ class Discriminator(chainer.Chain):
     def __init__(self, bottom_width=4, ch=1024, wscale=0.02):
         w = chainer.initializers.Normal(wscale)
         super(Discriminator, self).__init__()
+        device = self.device
         
         with self.init_scope():
-        
-            self.c0_0 = L.Convolution2D(1, ch // 8, 3, 1, 1, initialW=w) # in_channels = 1 -> grayscale
-            self.c0_1 = L.Convolution2D(ch // 8, ch // 4, 4, 2, 1, initialW=w)
-            self.c1_0 = L.Convolution2D(ch // 4, ch // 4, 3, 1, 1, initialW=w)
-            self.c1_1 = L.Convolution2D(ch // 4, ch // 2, 4, 2, 1, initialW=w)
-            self.c2_0 = L.Convolution2D(ch // 2, ch // 2, 3, 1, 1, initialW=w)
-            self.c2_1 = L.Convolution2D(ch // 2, ch // 1, 4, 2, 1, initialW=w)
-            self.c3_0 = L.Convolution2D(ch // 1, ch // 1, 3, 1, 1, initialW=w)
-            
-            self.l4 = L.Linear(bottom_width * bottom_width * ch, 1, initialW=w)
-            
-            self.bn0_1 = L.BatchNormalization(ch // 4, use_gamma=False)
-            self.bn1_0 = L.BatchNormalization(ch // 4, use_gamma=False)
-            self.bn1_1 = L.BatchNormalization(ch // 2, use_gamma=False)
-            self.bn2_0 = L.BatchNormalization(ch // 2, use_gamma=False)
-            self.bn2_1 = L.BatchNormalization(ch // 1, use_gamma=False)
-            self.bn3_0 = L.BatchNormalization(ch // 1, use_gamma=False)
+
+            model_D=chainer.Sequential(
+                add_noise(device, x),
+                L.Convolution2D(1, ch // 8, 3, 1, 1, initialW=w), # in_channels = 1 -> grayscale
+                add_noise(device),
+                F.leaky_relu,
+                L.Convolution2D(ch // 8, ch // 4, 4, 2, 1, initialW=w),
+                L.BatchNormalization(ch // 4, use_gamma=False),
+                add_noise(device),
+                F.leaky_relu,
+                L.Convolution2D(ch // 4, ch // 4, 3, 1, 1, initialW=w),
+                L.BatchNormalization(ch // 4, use_gamma=False),
+                add_noise(device),
+                F.leaky_relu,
+                L.Convolution2D(ch // 4, ch // 2, 4, 2, 1, initialW=w),
+                L.BatchNormalization(ch // 2, use_gamma=False),
+                add_noise(device),
+                F.leaky_relu,
+                L.Convolution2D(ch // 2, ch // 2, 3, 1, 1, initialW=w),
+                L.BatchNormalization(ch // 2, use_gamma=False),
+                add_noise(device),
+                F.leaky_relu,
+                L.Convolution2D(ch // 2, ch // 1, 4, 2, 1, initialW=w),
+                L.BatchNormalization(ch // 1, use_gamma=False),
+                add_noise(device),
+                F.leaky_relu,
+                L.Convolution2D(ch // 1, ch // 1, 3, 1, 1, initialW=w),
+                L.BatchNormalization(ch // 1, use_gamma=False),
+                add_noise(device),
+                F.leaky_relu,
+                L.Linear(bottom_width * bottom_width * ch, 1, initialW=w)
+            )
+
 
     def forward(self, x):
-        device = self.device
-        h = add_noise(device, x)
-        h = F.leaky_relu(add_noise(device, self.c0_0(h)))
-        h = F.leaky_relu(add_noise(device, self.bn0_1(self.c0_1(h))))
-        h = F.leaky_relu(add_noise(device, self.bn1_0(self.c1_0(h))))
-        h = F.leaky_relu(add_noise(device, self.bn1_1(self.c1_1(h))))
-        h = F.leaky_relu(add_noise(device, self.bn2_0(self.c2_0(h))))
-        h = F.leaky_relu(add_noise(device, self.bn2_1(self.c2_1(h))))
-        h = F.leaky_relu(add_noise(device, self.bn3_0(self.c3_0(h))))
-        return self.l4(h)
+        
+        h=model_D(x)
+        return h
 
 
 
