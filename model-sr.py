@@ -21,34 +21,33 @@ import warnings
 from PIL import Image
 
 # Normalization parameters for pre-trained PyTorch models
+
+'''All pre-trained models expect input images normalized in the same way, i.e. mini-batches of 3-channel RGB images 
+of shape (3 x H x W), where H and W are expected to be at least 224. The images have to be loaded in to a range of 
+[0, 1] and then normalized using mean = [0.485, 0.456, 0.406] and std = [0.229, 0.224, 0.225]'''
 mean = np.array([0.485, 0.456, 0.406])
 std = np.array([0.229, 0.224, 0.225])
+
 
 class ImageDataset(Dataset):
     def __init__(self, root, hr_shape):
         hr_height, hr_width = hr_shape
         # Transforms for low resolution images and high resolution images
 
-    def lr_transform(self, image):
-
-        x = F.resize_images(Image.BICUBIC, (hr_height // 4, hr_height // 4))
-        chainer.as_array(x)
-        
-
-
-        self.lr_transform = transforms.Compose(
-            [
-                transforms.Resize((hr_height // 4, hr_height // 4), Image.BICUBIC),
-                transforms.ToTensor(),
-                transforms.Normalize(mean, std),
-            ]
+        self.lr_transform=chainer.Sequential(
+            F.resize_images(Image.BICUBIC, (hr_height // 4, hr_height // 4))
+            chainer.as_array()
+            # falta normalizar
+            # transforms.Normalize(mean, std)
+            
         )
-        self.hr_transform = transforms.Compose(
-            [
-                transforms.Resize((hr_height, hr_height), Image.BICUBIC),
-                transforms.ToTensor(),
-                transforms.Normalize(mean, std),
-            ]
+
+        self.hr_transform=chainer.Sequential(
+            F.resize_images(Image.BICUBIC, (hr_height, hr_height))
+            chainer.as_array()
+            # falta normalizar
+            # transforms.Normalize(mean, std)
+            
         )
 
         self.files = sorted(glob.glob(root + "/*.*"))
@@ -62,3 +61,16 @@ class ImageDataset(Dataset):
 
     def __len__(self):
         return len(self.files)
+
+
+
+class FeatureExtractor(chainer.Chain):
+    def __init__(self):
+        super(FeatureExtractor, self).__init__()
+        vgg19_model = L.VGG19Layers()
+        self.feature_extractor = chainer.Sequential(
+            *list(vgg19_model.children())[:18] # (?)
+        )
+
+    def forward(self, img):
+        return self.feature_extractor(img)
