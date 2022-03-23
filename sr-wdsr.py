@@ -92,7 +92,7 @@ class MODEL(chainer.Chain):
         )
         skip.append(F.depth2space(scale))
 
-         # make object members
+        # make object members
         self.head = chainer.Sequential(*head)
         self.body = chainer.Sequential(*body)
         self.tail = chainer.Sequential(*tail)
