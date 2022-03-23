@@ -25,27 +25,27 @@ from PIL import Image
 
 class Block(chainer.Chain):
 
-    def __init__(self, n_feats, kernel_size, res_scale=1, act=F.relu()):
+    def __init__(self):
         super(Block, self).__init__()
         self.res_scale = res_scale
-        body = []
-        expand = 6
-        linear = 0.8
-        body.append(
-            F.BatchNormalization(L.Convolution2D(n_feats, n_feats*expand, 1, padding=1//2)))
-        body.append(act)
-        body.append(
-            F.BatchNormalization(L.Convolution2D(n_feats*expand, int(n_feats*linear), 1, padding=1//2)))
-        body.append(
-            F.BatchNormalization(L.Convolution2D(int(n_feats*linear), n_feats, kernel_size, padding=kernel_size//2)))
+        block = []
+
+        block.append(
+            F.BatchNormalization(L.Convolution2D(64, 64, 3, stride=1)))
+        block.append(F.prelu)
+        block.append(
+            F.BatchNormalization(L.Convolution2D(64, 64, 3, stride=1)))
+        block.append(F.prelu)
 
 
-        self.body = chainer.Sequential(*body)
+
+
+        self.block = chainer.Sequential(*block)
 
     def forward(self, x):
-        res = self.body(x) * self.res_scale
-        res += x
-        return res
+        res = self.block(x)
+        outblock = F.add(res,x)
+        return outblock
 
 
 
@@ -57,57 +57,51 @@ class MODEL(chainer.Chain):
         self.args = args
         scale = args.scale[0]
         n_resblocks = args.n_resblocks
-        n_feats = args.n_feats
-        kernel_size = args.kernel_size
-        act = F.relu()
-        # wn = lambda x: x
-        # wn = lambda x: torch.nn.utils.weight_norm(x)
-
-        # self.rgb_mean = torch.autograd.Variable(torch.FloatTensor(
-        #    [args.r_mean, args.g_mean, args.b_mean])).view([1, 3, 1, 1])
 
 
         # HEAD
         head = []
-        head.append(
-            F.BatchNormalization(L.Convolution2D(args.n_colors, n_feats, 3, padding=3//2)))
+        head.append(L.Convolution2D(1, 64, 9, stride=1))
+        head.append(F.prelu)
+
+
 
         # BODY
         body = []
         for i in range(n_resblocks):
-            body.append(
-                Block(n_feats, kernel_size, act=act, res_scale=args.res_scale))
-        
+            body.append(Block())
+        body.append(
+            F.BatchNormalization(L.Convolution2D(64, 64, 3, stride=1)))
+
+
 
         # TAIL
         tail = []
-        out_feats = scale*scale*args.n_colors
         tail.append(
-            F.BatchNormalization(L.Convolution2D(n_feats, out_feats, 3, padding=3//2)))
-        tail.append(F.depth2space(scale))
+            F.BatchNormalization(L.Convolution2D(64, 256, 3, stride=1)))
+        tail.append(F.depth2space(2))
+        tail.append(F.prelu)
+        tail.append(
+            F.BatchNormalization(L.Convolution2D(256, 256, 3, stride=1)))
+        tail.append(F.depth2space(2))
+        tail.append(F.prelu)
+        tail.append(L.Convolution2D(256, 1, 9, stride=1))
 
-        skip = []
-        skip.append(
-            F.BatchNormalization(L.Convolution2D(args.n_colors, out_feats, 5, padding=5//2))
-        )
-        skip.append(F.depth2space(scale))
+
 
         # make object members
         self.head = chainer.Sequential(*head)
         self.body = chainer.Sequential(*body)
         self.tail = chainer.Sequential(*tail)
-        self.skip = chainer.Sequential(*skip)
     
 
-    def forward(self, x):
-        x = x/127.5
-        s = self.skip(x)
-        x = self.head(x)
-        x = self.body(x)
-        x = self.tail(x)
-        x += s
-        x = x*127.5
-        return x
+    def forward(self, lr):
+        out1 = self.head(lr)
+        out2 = self.body(out1)
+        outbody = F.add(out1, out2)
+        sr = self.tail(outbody)
+        
+        return sr
 
 
 
@@ -186,14 +180,6 @@ def main():
     
     parser.add_argument('--n_resblocks', '-n', type=int,
                         help='Number of residual blocks on the body)')
-    parser.add_argument('--n_feats', '-f', type=int,
-                        help='Number of features)')
-    parser.add_argument('--n_colors', '-c', type=int,
-                        help='Number of color channels)')
-    parser.add_argument('--kernel_size', '-k', type=int, default=3,
-                        help='Kernel size')
-    parser.add_argument('--scale', '-s', type=list,
-                        help='Output dimensions [width, height]')
 
     parser.add_argument('--sr_model', '-r', default='',
                         help='Use pre-trained sr model for training')
