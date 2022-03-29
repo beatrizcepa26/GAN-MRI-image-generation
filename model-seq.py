@@ -58,19 +58,19 @@ class Generator(chainer.Chain):
                 L.Linear(self.n_hidden, bottom_width * bottom_width * ch,
                                initialW=w),
                 L.BatchNormalization(bottom_width * bottom_width * ch)
-                F.relu(),
+                F.relu,
                 F.reshape(len(z), self.ch, self.bottom_width, self.bottom_width),
                 L.Deconvolution2D(ch, ch // 2, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 2),
-                F.relu(),
+                F.relu,
                 L.Deconvolution2D(ch // 2, ch // 4, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 4),
-                F.relu(),
+                F.relu,
                 L.Deconvolution2D(ch // 4, ch // 8, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 8),
-                F.relu(),
+                F.relu,
                 L.Deconvolution2D(ch // 8, 1, 3, 1, 1, initialW=w), # out_channels = 1 -> grayscale
-                F.tanh()            
+                F.tanh            
             )
 
     
@@ -103,31 +103,31 @@ class Discriminator(chainer.Chain):
                 add_noise(device, x),
                 L.Convolution2D(1, ch // 8, 3, 1, 1, initialW=w), # in_channels = 1 -> grayscale
                 add_noise(device),
-                F.leaky_relu(),
+                F.leaky_relu,
                 L.Convolution2D(ch // 8, ch // 4, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 4, use_gamma=False),
                 add_noise(device),
-                F.leaky_relu(),
+                F.leaky_relu,
                 L.Convolution2D(ch // 4, ch // 4, 3, 1, 1, initialW=w),
                 L.BatchNormalization(ch // 4, use_gamma=False),
                 add_noise(device),
-                F.leaky_relu(),
+                F.leaky_relu,
                 L.Convolution2D(ch // 4, ch // 2, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 2, use_gamma=False),
                 add_noise(device),
-                F.leaky_relu(),
+                F.leaky_relu,
                 L.Convolution2D(ch // 2, ch // 2, 3, 1, 1, initialW=w),
                 L.BatchNormalization(ch // 2, use_gamma=False),
                 add_noise(device),
-                F.leaky_relu(),
+                F.leaky_relu,
                 L.Convolution2D(ch // 2, ch // 1, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 1, use_gamma=False),
                 add_noise(device),
-                F.leaky_relu(),
+                F.leaky_relu,
                 L.Convolution2D(ch // 1, ch // 1, 3, 1, 1, initialW=w),
                 L.BatchNormalization(ch // 1, use_gamma=False),
                 add_noise(device),
-                F.leaky_relu(),
+                F.leaky_relu,
                 L.Linear(bottom_width * bottom_width * ch, 1, initialW=w)
             )
 
@@ -197,8 +197,6 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
         
 
 
-
-
 def out_generated_image(gen, dis, rows, cols, seed, dst):
     @chainer.training.make_extension() # make a new extension
     
@@ -236,7 +234,7 @@ def out_generated_image(gen, dis, rows, cols, seed, dst):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='ChainerMN example: DCGAN')
+    parser = argparse.ArgumentParser(description='Img gen model')
     parser.add_argument('--batchsize', '-b', type=int, default=50,
                         help='Number of images in each mini-batch')
     parser.add_argument('--communicator', type=str,
