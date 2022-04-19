@@ -35,10 +35,6 @@ class Block(chainer.Chain):
         block.append(F.prelu)
         block.append(
             F.BatchNormalization(L.Convolution2D(64, 64, 3, stride=1)))
-        block.append(F.prelu)
-
-
-
 
         self.block = chainer.Sequential(*block)
 
