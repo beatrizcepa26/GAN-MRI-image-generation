@@ -171,7 +171,7 @@ def out_generated_image(imgSR, dst):
 
 def main():
     parser = argparse.ArgumentParser(description='Img SR model')
-    parser.add_argument('--batchsize', '-b', type=int, default=50,
+    parser.add_argument('--batchsize', '-b', type=int, default=16,
                         help='Number of images in each mini-batch')
     parser.add_argument('--communicator', type=str,
                         default='pure_nccl', help='Type of communicator')
@@ -193,7 +193,7 @@ def main():
     parser.add_argument('--kernel_size', '-k', type=int, default=3,
                         help='Kernel size')
     parser.add_argument('--scale', '-s', type=list,
-                        help='Output dimensions [width, height]')
+                        help='Output width/height]')
 
     parser.add_argument('--sr_model', '-r', default='',
                         help='Use pre-trained sr model for training')
@@ -248,12 +248,12 @@ if device >= 0:
 
 
 # Setup an optimizer
-def make_optimizer(model, comm, alpha=0.0002, beta1=0.5):
+def make_optimizer(model, comm, alpha=0.0001, beta1=0.9, beta2=0.999, eps=1*10^-8):
 
     # Create a multi node optimizer from a standard Chainer optimizer.
 
     optimizer = chainermn.create_multi_node_optimizer(
-        chainer.optimizers.Adam(alpha=alpha, beta1=beta1), comm)
+        chainer.optimizers.Adam(alpha=alpha, beta1=beta1, beta2=beta2, eps=eps), comm)
 
     optimizer.setup(model)
     
