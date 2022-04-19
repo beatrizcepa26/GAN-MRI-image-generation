@@ -44,7 +44,7 @@ def add_noise(device, h, sigma=0.2):
 
 class Generator(chainer.Chain):
     
-    def __init__(self, n_hidden, bottom_width=4, ch=1024, wscale=0.02):
+    def __init__(self, n_hidden, bottom_width=4, ch=1024, wscale=0.02): # mudar bottom_width para maior resolucao do output
         
         super(Generator, self).__init__()
         self.n_hidden = n_hidden
