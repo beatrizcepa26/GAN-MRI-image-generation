@@ -306,7 +306,6 @@ if comm.rank == 0:
 # Start the training using a pre-trained model, saved by snapshot_object
 if args.sr_model:
     chainer.serializers.load_npz(args.sr_model, imgSR)
-)
 
 
 # Run the training
