@@ -139,7 +139,7 @@ class Updater(chainer.training.updaters.StandardUpdater):
 
 
 
-def out_image(imgSR, dst):
+def out__generated_image(imgSR, dst):
     @chainer.training.make_extension() # make a new extension
     
     def make_image(trainer):
