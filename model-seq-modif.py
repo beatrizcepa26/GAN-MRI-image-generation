@@ -2,7 +2,6 @@ import math
 import numpy as np
 
 import chainer
-from chainer import backend
 from chainer import backends
 from chainer.backends import cuda
 from chainer import Function, FunctionNode, gradient_check, report, training, utils, Variable
@@ -26,10 +25,7 @@ def add_noise(device, h, sigma=0.2):
     # Add some noise to every intermediate outputs of D before giving them to the next layers
     
     if chainer.config.train: 
-        xp = device.xp 
-       
-        # TODO(niboshi): Support random.randn in ChainerX (?)
-        
+        xp = device.xp         
         if device.xp is chainerx:
             fallback_device = device.fallback_device
             with chainer.using_device(fallback_device): 
@@ -57,18 +53,18 @@ class Generator(chainer.Chain):
             model_G=chainer.Sequential(
                 L.Linear(self.n_hidden, bottom_width * bottom_width * ch,
                                initialW=w),
-                L.BatchNormalization(bottom_width * bottom_width * ch)
-                F.relu,
+                L.BatchNormalization(bottom_width * bottom_width * ch),
+                F.relu(),
                 F.reshape(len(z), self.ch, self.bottom_width, self.bottom_width),
                 L.Deconvolution2D(ch, ch // 2, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 2),
-                F.relu,
+                F.relu(),
                 L.Deconvolution2D(ch // 2, ch // 4, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 4),
-                F.relu,
+                F.relu(),
                 L.Deconvolution2D(ch // 4, ch // 8, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 8),
-                F.relu,
+                F.relu(),
                 L.Deconvolution2D(ch // 8, 1, 4, 1, 1, initialW=w), # out_channels = 1 -> grayscale
                 # F.tanh            
             )
@@ -103,31 +99,31 @@ class Discriminator(chainer.Chain):
                 add_noise(device, x),
                 L.Convolution2D(1, ch // 8, 4, 1, 1, initialW=w), # in_channels = 1 -> grayscale
                 add_noise(device),
-                F.elu,
+                F.elu(),
                 L.Convolution2D(ch // 8, ch // 4, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 4, use_gamma=False),
                 add_noise(device),
-                F.elu,
+                F.elu(),
                 L.Convolution2D(ch // 4, ch // 4, 4, 1, 1, initialW=w),
                 L.BatchNormalization(ch // 4, use_gamma=False),
                 add_noise(device),
-                F.elu,
+                F.elu(),
                 L.Convolution2D(ch // 4, ch // 2, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 2, use_gamma=False),
                 add_noise(device),
-                F.elu,
+                F.elu(),
                 L.Convolution2D(ch // 2, ch // 2, 4, 1, 1, initialW=w),
                 L.BatchNormalization(ch // 2, use_gamma=False),
                 add_noise(device),
-                F.elu,
+                F.elu(),
                 L.Convolution2D(ch // 2, ch // 1, 4, 2, 1, initialW=w),
                 L.BatchNormalization(ch // 1, use_gamma=False),
                 add_noise(device),
-                F.elu,
+                F.elu(),
                 L.Convolution2D(ch // 1, ch // 1, 4, 1, 1, initialW=w),
                 L.BatchNormalization(ch // 1, use_gamma=False),
                 add_noise(device),
-                F.elu,
+                F.elu(),
                 L.Linear(bottom_width * bottom_width * ch, 1, initialW=w)
             )
 

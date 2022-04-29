@@ -38,8 +38,6 @@ def add_noise(device, h, sigma=0.2):
     the configuration is only updated in the current thread. '''
     if chainer.config.train: # if the code is running in the training mode
         xp = device.xp # .xp gets the array module of the device's data array
-       
-        # TODO(niboshi): Support random.randn in ChainerX (?)
         
         if device.xp is chainerx:
             fallback_device = device.fallback_device
