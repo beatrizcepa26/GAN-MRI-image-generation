@@ -151,7 +151,7 @@ def out__generated_image(imgSR, dst):
 
         preview_dir = '{}/preview'.format(dst) # '%s/preview' %dst
         preview_path = preview_dir +\
-            '/image{:0>8}.dcm'.format(trainer.updater.iteration) # DICOM image
+            '/image{:0>8}.png'.format(trainer.updater.iteration) 
         if not os.path.exists(preview_dir):
             os.makedirs(preview_dir)
         Image.fromarray(x).save(preview_path)
@@ -255,7 +255,7 @@ if comm.rank == 0:
     else:
         # 256x256 -> Users\user\Desktop\imgs\1
         all_files = os.listdir(args.dataset)
-        image_files = [f for f in all_files if ('dcm' in f)] # DICOM images
+        image_files = [f for f in all_files if (f.endswith('.png'))] 
         print('{} contains {} image files'
                 .format(args.dataset, len(image_files)))
         train = chainer.datasets\

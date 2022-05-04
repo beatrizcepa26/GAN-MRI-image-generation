@@ -2,7 +2,6 @@ import math
 import numpy as np
 
 import chainer
-from chainer import backend
 from chainer import backends
 from chainer.backends import cuda
 from chainer import Function, FunctionNode, gradient_check, report, training, utils, Variable
@@ -223,7 +222,7 @@ def out_generated_image(gen, dis, rows, cols, seed, dst):
 
         preview_dir = '{}/preview'.format(dst) # '%s/preview' %dst
         preview_path = preview_dir +\
-            '/image{:0>8}.dcm'.format(trainer.updater.iteration) # DICOM image
+            '/image{:0>8}.png'.format(trainer.updater.iteration) # DICOM image
         if not os.path.exists(preview_dir):
             os.makedirs(preview_dir)
         Image.fromarray(x).save(preview_path)
@@ -337,7 +336,7 @@ def main():
         else:
             # 256x256 -> Users\user\Desktop\imgs\1
             all_files = os.listdir(args.dataset)
-            image_files = [f for f in all_files if ('dcm' in f)] # DICOM images
+            image_files = [f for f in all_files if (f.endswith('.png'))] 
             print('{} contains {} image files'
                   .format(args.dataset, len(image_files)))
             train = chainer.datasets\
