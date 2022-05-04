@@ -11,9 +11,7 @@ from chainer import datasets, initializers, iterators, optimizers, serializers
 from chainer import Link, Chain, ChainList, Sequential
 import chainer.functions as F
 import chainer.links as L
-from chainer.training import extensions
-
-import chainerx 
+from chainer.training import extensions 
 
 import argparse
 import os

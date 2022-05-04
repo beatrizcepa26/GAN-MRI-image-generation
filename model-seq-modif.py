@@ -11,7 +11,7 @@ import chainer.functions as F
 import chainer.links as L
 from chainer.training import extensions
 
-import chainerx 
+# import chainerx 
 
 import argparse
 import os
@@ -25,13 +25,13 @@ def add_noise(device, h, sigma=0.2):
     # Add some noise to every intermediate outputs of D before giving them to the next layers
     
     if chainer.config.train: 
-        # xp = device.xp         
-        if device.xp is chainerx:
-            fallback_device = device.fallback_device
-            with chainer.using_device(fallback_device): 
-                randn = device.send(fallback_device.xp.random.randn(*h.shape))
-        else:
-            randn = xp.random.randn(*h.shape)
+        xp = device.xp         
+        # if device.xp is chainerx:
+        #     fallback_device = device.fallback_device
+        #     with chainer.using_device(fallback_device): 
+        #         randn = device.send(fallback_device.xp.random.randn(*h.shape))
+        # else:
+        randn = xp.random.randn(*h.shape)
         return h + sigma * randn
     else:
         return h
