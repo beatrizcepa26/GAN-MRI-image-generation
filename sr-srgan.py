@@ -1,4 +1,4 @@
-import glob
+# import glob
 import math
 import numpy as np
 
@@ -13,10 +13,12 @@ import chainer.functions as F
 import chainer.links as L
 from chainer.training import extensions 
 
+import chainermn
+
 import argparse
 import os
 import warnings
-import itertools
+# import itertools
 import sys
 
 from PIL import Image

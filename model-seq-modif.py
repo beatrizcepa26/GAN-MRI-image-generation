@@ -11,7 +11,8 @@ import chainer.functions as F
 import chainer.links as L
 from chainer.training import extensions
 
-# import chainerx 
+# import chainerx
+import chainermn
 
 import argparse
 import os
