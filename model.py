@@ -2,7 +2,7 @@ import math
 import numpy as np
 
 import chainer
-from chainer import backend
+# from chainer import backend
 from chainer import backends
 from chainer.backends import cuda
 from chainer import Function, FunctionNode, gradient_check, report, training, utils, Variable
@@ -12,7 +12,7 @@ import chainer.functions as F
 import chainer.links as L
 from chainer.training import extensions
 
-import chainerx 
+import chainermn
 
 import argparse
 import os
@@ -20,32 +20,50 @@ import warnings
 
 from PIL import Image
 
+# tive de por esta funcao porque nao consigo importar chainer.backend
+def get_array_module(*args):
+    """Gets an appropriate NumPy-compatible module to process arguments
+    This function will return their data arrays' array module for
+    :class:`~chainer.Variable` arguments.
+    Args:
+        args: Values to determine whether NumPy, CuPy, or ChainerX should be
+            used.
+    Returns:
+        module: :mod:`numpy`, :mod:`cupy`, or :mod:`chainerx` is returned based
+        on the types of the arguments.
+    """
+
+    if cuda.available:
+        arrays = []
+        for arg in args:
+            # Unwrap arrays
+            if isinstance(arg, chainer.variable.Variable):
+                array = arg.data
+            else:
+                array = arg
+            arrays.append(array)
+        if cuda.available:
+            return cuda.cupy.get_array_module(*arrays)
+    return np
 
 
-def add_noise(device, h, sigma=0.2):
-    # Add some noise to every intermediate outputs of D before giving them to the next layers
-    
-    if chainer.config.train: 
-        xp = device.xp 
-       
-        # TODO(niboshi): Support random.randn in ChainerX (?)
-        
-        if device.xp is chainerx:
-            fallback_device = device.fallback_device
-            with chainer.using_device(fallback_device): 
-                randn = device.send(fallback_device.xp.random.randn(*h.shape))
-        else:
-            randn = xp.random.randn(*h.shape)
-        return h + sigma * randn
+
+
+def add_noise(h, sigma=0.2):
+    xp = get_array_module(h.array)
+    # xp = backend.get_array_module(h.array)
+    if chainer.config.train:
+        return h + sigma * xp.random.randn(*h.shape)
     else:
         return h
+
 
 
 
 class Generator(chainer.Chain):
     
     def __init__(self, n_hidden, bottom_width=4, ch=1024, wscale=0.02):
-        
+
         super(Generator, self).__init__()
         self.n_hidden = n_hidden
         self.ch = ch 
@@ -59,32 +77,45 @@ class Generator(chainer.Chain):
             self.dc1 = L.Deconvolution2D(ch, ch // 2, 4, 2, 1, initialW=w)
             self.dc2 = L.Deconvolution2D(ch // 2, ch // 4, 4, 2, 1, initialW=w)
             self.dc3 = L.Deconvolution2D(ch // 4, ch // 8, 4, 2, 1, initialW=w)
-            self.dc4 = L.Deconvolution2D(ch // 8, 1, 3, 1, 1, initialW=w) # out_channels = 1 -> grayscale
-            
+            self.dc4 = L.Deconvolution2D(ch // 8, ch // 16, 4, 2, 1, initialW=w) 
+            self.dc5 = L.Deconvolution2D(ch // 16, ch // 32, 4, 2, 1, initialW=w)
+            self.dc6 = L.Deconvolution2D(ch // 32, 3, 4, 2, 1, initialW=w)
+
+
             self.bn0 = L.BatchNormalization(bottom_width * bottom_width * ch)
             self.bn1 = L.BatchNormalization(ch // 2)
             self.bn2 = L.BatchNormalization(ch // 4)
             self.bn3 = L.BatchNormalization(ch // 8)
+            self.bn4 = L.BatchNormalization(ch // 16)
+            self.bn5 = L.BatchNormalization(ch // 32)
 
     
     
     def make_hidden(self, batchsize):
         
-        dtype = chainer.get_dtype() 
         return np.random.uniform(-1, 1, (batchsize, self.n_hidden, 1, 1))\
-            .astype(dtype)
+            .astype(np.float32)
 
     
     
     def forward(self, z):
-        # in this function, each layer is called and followed by relu, except the last layer (tanh)
+        # in this function, each layer is called and followed by relu, except the last layer 
         
         h = F.reshape(F.relu(self.bn0(self.l0(z))), 
                       (len(z), self.ch, self.bottom_width, self.bottom_width))
+        print(h.shape)
         h = F.relu(self.bn1(self.dc1(h)))
+        print(h.shape)
         h = F.relu(self.bn2(self.dc2(h)))
+        print(h.shape)
         h = F.relu(self.bn3(self.dc3(h)))
-        x = F.tanh(self.dc4(h))
+        print(h.shape)
+        h = F.relu(self.bn4(self.dc4(h)))
+        print(h.shape)
+        h = F.relu(self.bn5(self.dc5(h)))
+        print(h.shape)
+        x = self.dc6(h)
+        print(x.shape)
         return x
 
 
@@ -97,34 +128,39 @@ class Discriminator(chainer.Chain):
         
         with self.init_scope():
         
-            self.c0_0 = L.Convolution2D(1, ch // 8, 3, 1, 1, initialW=w) # in_channels = 1 -> grayscale
-            self.c0_1 = L.Convolution2D(ch // 8, ch // 4, 4, 2, 1, initialW=w)
-            self.c1_0 = L.Convolution2D(ch // 4, ch // 4, 3, 1, 1, initialW=w)
-            self.c1_1 = L.Convolution2D(ch // 4, ch // 2, 4, 2, 1, initialW=w)
-            self.c2_0 = L.Convolution2D(ch // 2, ch // 2, 3, 1, 1, initialW=w)
-            self.c2_1 = L.Convolution2D(ch // 2, ch // 1, 4, 2, 1, initialW=w)
-            self.c3_0 = L.Convolution2D(ch // 1, ch // 1, 3, 1, 1, initialW=w)
+            self.c0_0 = L.Convolution2D(3, ch // 32, 4, 2, 1, initialW=w) # in_channels = 1 -> grayscale
+            self.c0_1 = L.Convolution2D(ch // 32, ch // 16, 4, 2, 1, initialW=w)
+            self.c1_0 = L.Convolution2D(ch // 16, ch // 8, 4, 2, 1, initialW=w)
+            self.c1_1 = L.Convolution2D(ch // 8, ch // 4, 4, 2, 1, initialW=w)
+            self.c2_0 = L.Convolution2D(ch // 4, ch // 4, 3, 1, 1, initialW=w)
+            self.c2_1 = L.Convolution2D(ch // 4, ch // 2, 4, 2, 1, initialW=w)
+            self.c3_0 = L.Convolution2D(ch // 2, ch // 2, 3, 1, 1, initialW=w)
+            self.c3_1 = L.Convolution2D(ch // 2, ch // 1, 4, 2, 1, initialW=w)
+            self.c4_0 = L.Convolution2D(ch // 1, ch // 1, 3, 1, 1, initialW=w)
             
-            self.l4 = L.Linear(bottom_width * bottom_width * ch, 1, initialW=w)
+            self.l5 = L.Linear(bottom_width * bottom_width * ch, 1, initialW=w)
             
-            self.bn0_1 = L.BatchNormalization(ch // 4, use_gamma=False)
-            self.bn1_0 = L.BatchNormalization(ch // 4, use_gamma=False)
-            self.bn1_1 = L.BatchNormalization(ch // 2, use_gamma=False)
-            self.bn2_0 = L.BatchNormalization(ch // 2, use_gamma=False)
-            self.bn2_1 = L.BatchNormalization(ch // 1, use_gamma=False)
-            self.bn3_0 = L.BatchNormalization(ch // 1, use_gamma=False)
+            self.bn0_1 = L.BatchNormalization(ch // 16, use_gamma=False)
+            self.bn1_0 = L.BatchNormalization(ch // 8, use_gamma=False)
+            self.bn1_1 = L.BatchNormalization(ch // 4, use_gamma=False)
+            self.bn2_0 = L.BatchNormalization(ch // 4, use_gamma=False)
+            self.bn2_1 = L.BatchNormalization(ch // 2, use_gamma=False)
+            self.bn3_0 = L.BatchNormalization(ch // 2, use_gamma=False)
+            self.bn3_1 = L.BatchNormalization(ch // 1, use_gamma=False)
+            self.bn4_0 = L.BatchNormalization(ch // 1, use_gamma=False)
 
     def forward(self, x):
-        device = self.device
-        h = add_noise(device, x)
-        h = F.leaky_relu(add_noise(device, self.c0_0(h)))
-        h = F.leaky_relu(add_noise(device, self.bn0_1(self.c0_1(h))))
-        h = F.leaky_relu(add_noise(device, self.bn1_0(self.c1_0(h))))
-        h = F.leaky_relu(add_noise(device, self.bn1_1(self.c1_1(h))))
-        h = F.leaky_relu(add_noise(device, self.bn2_0(self.c2_0(h))))
-        h = F.leaky_relu(add_noise(device, self.bn2_1(self.c2_1(h))))
-        h = F.leaky_relu(add_noise(device, self.bn3_0(self.c3_0(h))))
-        return self.l4(h)
+        h = add_noise(x)
+        h = F.elu(add_noise(self.c0_0(h)))
+        h = F.elu(add_noise(self.bn0_1(self.c0_1(h))))
+        h = F.elu(add_noise(self.bn1_0(self.c1_0(h))))
+        h = F.elu(add_noise(self.bn1_1(self.c1_1(h))))
+        h = F.elu(add_noise(self.bn2_0(self.c2_0(h))))
+        h = F.elu(add_noise(self.bn2_1(self.c2_1(h))))
+        h = F.elu(add_noise(self.bn3_0(self.c3_0(h))))
+        h = F.elu(add_noise(self.bn3_1(self.c3_1(h))))
+        h = F.elu(add_noise(self.bn4_0(self.c4_0(h))))
+        return self.l5(h)
 
 
 
@@ -162,25 +198,24 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
         
         gen_optimizer = self.get_optimizer('gen')
         dis_optimizer = self.get_optimizer('dis')
-        
+
         batch = self.get_iterator('main').next()
-        
-        
-        device = self.device
-        
-        x_real = Variable(self.converter(batch, device)) / 255. 
+        x_real = Variable(self.converter(batch, self.device)) / 255.
+        # print (x_real.shape)
+        # xp = chainer.backend.get_array_module(x_real.array)
+        xp = get_array_module(x_real.array)
 
         gen, dis = self.gen, self.dis
         batchsize = len(batch)
-        
+
         y_real = dis(x_real)
 
-        z = Variable(device.xp.asarray(gen.make_hidden(batchsize)))
-        
+        z = Variable(xp.asarray(gen.make_hidden(batchsize)))
+        # print (z.shape)
         x_fake = gen(z)
-        
+        # print(x_fake.shape)
         y_fake = dis(x_fake)
-    
+
         dis_optimizer.update(self.loss_dis, dis, y_fake, y_real)
         gen_optimizer.update(self.loss_gen, gen, y_fake)
 
@@ -207,13 +242,13 @@ def out_generated_image(gen, dis, rows, cols, seed, dst):
     
         _, _, H, W = x.shape
         
-        x = x.reshape((rows, cols, 1, H, W)) # 1 colour channel -> grayscale
+        x = x.reshape((rows, cols, 3, H, W)) # 3 colour channel 
         x = x.transpose(0, 3, 1, 4, 2)
-        x = x.reshape((rows * H, cols * W, 1)) # 1 colour channel -> grayscale
+        x = x.reshape((rows * H, cols * W, 3)) # 3 colour channel
 
         preview_dir = '{}/preview'.format(dst) # '%s/preview' %dst
         preview_path = preview_dir +\
-            '/image{:0>8}.dcm'.format(trainer.updater.iteration) # DICOM image
+            '/image{:0>8}.png'.format(trainer.updater.iteration) 
         if not os.path.exists(preview_dir):
             os.makedirs(preview_dir)
         Image.fromarray(x).save(preview_path)
@@ -225,11 +260,11 @@ def out_generated_image(gen, dis, rows, cols, seed, dst):
 
 def main():
     parser = argparse.ArgumentParser(description='ChainerMN example: DCGAN')
-    parser.add_argument('--batchsize', '-b', type=int, default=50,
+    parser.add_argument('--batchsize', '-b', type=int, default=64,
                         help='Number of images in each mini-batch')
     parser.add_argument('--communicator', type=str,
                         default='pure_nccl', help='Type of communicator')
-    parser.add_argument('--epoch', '-e', type=int, default=1000,
+    parser.add_argument('--epoch', '-e', type=int, default=100,
                         help='Number of sweeps over the dataset to train')
     parser.add_argument('--gpu', '-g', action='store_true',
                         help='Use GPU')
@@ -322,12 +357,10 @@ def main():
     # Datasets of worker 0 are evenly split and distributed to all workers.
     if comm.rank == 0:
         if args.dataset == '':
-            train, _ = chainer.datasets.get_cifar10(withlabel=False,
-                                                    scale=255.)
+            print('Please provide the dataset directory')
         else:
-            # 256x256 -> Users\user\Desktop\imgs\1
             all_files = os.listdir(args.dataset)
-            image_files = [f for f in all_files if ('dcm' in f)] # DICOM images
+            image_files = [f for f in all_files if (f.endswith('.png'))] 
             print('{} contains {} image files'
                   .format(args.dataset, len(image_files)))
             train = chainer.datasets\
