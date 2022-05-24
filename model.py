@@ -103,19 +103,12 @@ class Generator(chainer.Chain):
         
         h = F.reshape(F.relu(self.bn0(self.l0(z))), 
                       (len(z), self.ch, self.bottom_width, self.bottom_width))
-        print(h.shape)
         h = F.relu(self.bn1(self.dc1(h)))
-        print(h.shape)
         h = F.relu(self.bn2(self.dc2(h)))
-        print(h.shape)
         h = F.relu(self.bn3(self.dc3(h)))
-        print(h.shape)
         h = F.relu(self.bn4(self.dc4(h)))
-        print(h.shape)
         h = F.relu(self.bn5(self.dc5(h)))
-        print(h.shape)
         x = self.dc6(h)
-        print(x.shape)
         return x
 
 
