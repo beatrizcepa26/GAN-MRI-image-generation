@@ -15,11 +15,6 @@ def crop(height, width):
             box = (j, i, j+width, i+height)
             a = im.crop(box)
             a.save(os.path.join(dir,"IMG-%s.png" % k))
-            # try:
-            #     # o = a.crop(area)
-            #     a.save(os.path.join(dir,"IMG-%s.png" % k))
-            # except:
-            #     pass
             k +=1
 
 crop(256,256)
