@@ -1,4 +1,3 @@
-import math
 import numpy as np
 
 import chainer
@@ -21,36 +20,37 @@ import warnings
 from PIL import Image
 
 # tive de por esta funcao porque nao consigo importar chainer.backend
-def get_array_module(*args):
-    """Gets an appropriate NumPy-compatible module to process arguments
-    This function will return their data arrays' array module for
-    :class:`~chainer.Variable` arguments.
-    Args:
-        args: Values to determine whether NumPy, CuPy, or ChainerX should be
-            used.
-    Returns:
-        module: :mod:`numpy`, :mod:`cupy`, or :mod:`chainerx` is returned based
-        on the types of the arguments.
-    """
+# def get_array_module(*args):
+"""Gets an appropriate NumPy-compatible module to process arguments
+This function will return their data arrays' array module for
+:class:`~chainer.Variable` arguments.
+Args:
+    args: Values to determine whether NumPy, CuPy, or ChainerX should be
+        used.
+Returns:
+    module: :mod:`numpy`, :mod:`cupy`, or :mod:`chainerx` is returned based
+    on the types of the arguments.
+"""
 
-    if cuda.available:
-        arrays = []
-        for arg in args:
-            # Unwrap arrays
-            if isinstance(arg, chainer.variable.Variable):
-                array = arg.data
-            else:
-                array = arg
-            arrays.append(array)
-        if cuda.available:
-            return cuda.cupy.get_array_module(*arrays)
-    return np
+# if cuda.available:
+#     arrays = []
+#     for arg in args:
+#         # Unwrap arrays
+#         if isinstance(arg, chainer.variable.Variable):
+#             array = arg.data
+#         else:
+#             array = arg
+#         arrays.append(array)
+#     if cuda.available:
+#         return cuda.cupy.get_array_module(*arrays)
+# return np
 
 
 
 
 def add_noise(h, sigma=0.2):
-    xp = get_array_module(h.array)
+    xp = cuda.get_array_module(h.array)
+    # xp = get_array_module(h.array)
     # xp = backend.get_array_module(h.array)
     if chainer.config.train:
         return h + sigma * xp.random.randn(*h.shape)
@@ -74,12 +74,12 @@ class Generator(chainer.Chain):
             self.l0 = L.Linear(self.n_hidden, bottom_width * bottom_width * ch,
                                initialW=w) 
         
-            self.dc1 = L.Deconvolution2D(ch, ch // 2, 4, 2, 1, initialW=w)
-            self.dc2 = L.Deconvolution2D(ch // 2, ch // 4, 4, 2, 1, initialW=w)
-            self.dc3 = L.Deconvolution2D(ch // 4, ch // 8, 4, 2, 1, initialW=w)
-            self.dc4 = L.Deconvolution2D(ch // 8, ch // 16, 4, 2, 1, initialW=w) 
-            self.dc5 = L.Deconvolution2D(ch // 16, ch // 32, 4, 2, 1, initialW=w)
-            self.dc6 = L.Deconvolution2D(ch // 32, 3, 4, 2, 1, initialW=w)
+            self.dc1 = L.Deconvolution2D(ch, ch // 2, 4, 2, 1, initialW=w) # k=4
+            self.dc2 = L.Deconvolution2D(ch // 2, ch // 4, 4, 2, 1, initialW=w) # k=4
+            self.dc3 = L.Deconvolution2D(ch // 4, ch // 8, 4, 2, 1, initialW=w) # k=4
+            self.dc4 = L.Deconvolution2D(ch // 8, ch // 16, 4, 2, 1, initialW=w) # k=4
+            self.dc5 = L.Deconvolution2D(ch // 16, ch // 32, 4, 2, 1, initialW=w) # k=4
+            self.dc6 = L.Deconvolution2D(ch // 32, 3, 4, 2, 1, initialW=w) # k=4
 
 
             self.bn0 = L.BatchNormalization(bottom_width * bottom_width * ch)
@@ -101,14 +101,14 @@ class Generator(chainer.Chain):
     def forward(self, z):
         # in this function, each layer is called and followed by relu, except the last layer 
         
-        h = F.reshape(F.relu(self.bn0(self.l0(z))), 
+        h = F.reshape(self.bn0(self.l0(z)), 
                       (len(z), self.ch, self.bottom_width, self.bottom_width))
-        h = F.relu(self.bn1(self.dc1(h)))
-        h = F.relu(self.bn2(self.dc2(h)))
-        h = F.relu(self.bn3(self.dc3(h)))
-        h = F.relu(self.bn4(self.dc4(h)))
-        h = F.relu(self.bn5(self.dc5(h)))
-        x = self.dc6(h)
+        h = F.leaky_relu(self.bn1(self.dc1(h)), 0.2)
+        h = F.leaky_relu(self.bn2(self.dc2(h)), 0.2)
+        h = F.leaky_relu(self.bn3(self.dc3(h)), 0.2)
+        h = F.leaky_relu(self.bn4(self.dc4(h)), 0.2)
+        h = F.leaky_relu(self.bn5(self.dc5(h)), 0.2)
+        x = F.tanh(self.dc6(h))
         return x
 
 
@@ -121,15 +121,15 @@ class Discriminator(chainer.Chain):
         
         with self.init_scope():
         
-            self.c0_0 = L.Convolution2D(3, ch // 32, 4, 2, 1, initialW=w) # in_channels = 1 -> grayscale
-            self.c0_1 = L.Convolution2D(ch // 32, ch // 16, 4, 2, 1, initialW=w)
-            self.c1_0 = L.Convolution2D(ch // 16, ch // 8, 4, 2, 1, initialW=w)
-            self.c1_1 = L.Convolution2D(ch // 8, ch // 4, 4, 2, 1, initialW=w)
-            self.c2_0 = L.Convolution2D(ch // 4, ch // 4, 3, 1, 1, initialW=w)
-            self.c2_1 = L.Convolution2D(ch // 4, ch // 2, 4, 2, 1, initialW=w)
-            self.c3_0 = L.Convolution2D(ch // 2, ch // 2, 3, 1, 1, initialW=w)
-            self.c3_1 = L.Convolution2D(ch // 2, ch // 1, 4, 2, 1, initialW=w)
-            self.c4_0 = L.Convolution2D(ch // 1, ch // 1, 3, 1, 1, initialW=w)
+            self.c0_0 = L.Convolution2D(3, ch // 32, 4, 2, 1, initialW=w) # k=4
+            self.c0_1 = L.Convolution2D(ch // 32, ch // 16, 4, 2, 1, initialW=w) # k=4
+            self.c1_0 = L.Convolution2D(ch // 16, ch // 8, 4, 2, 1, initialW=w) # k=4
+            self.c1_1 = L.Convolution2D(ch // 8, ch // 4, 4, 2, 1, initialW=w) # k=4
+            self.c2_0 = L.Convolution2D(ch // 4, ch // 4, 3, 1, 1, initialW=w) # k=3
+            self.c2_1 = L.Convolution2D(ch // 4, ch // 2, 4, 2, 1, initialW=w) # k=4
+            self.c3_0 = L.Convolution2D(ch // 2, ch // 2, 3, 1, 1, initialW=w) # k=3
+            self.c3_1 = L.Convolution2D(ch // 2, ch // 1, 4, 2, 1, initialW=w) # k=4
+            self.c4_0 = L.Convolution2D(ch // 1, ch // 1, 3, 1, 1, initialW=w) #k=3
             
             self.l5 = L.Linear(bottom_width * bottom_width * ch, 1, initialW=w)
             
@@ -141,19 +141,21 @@ class Discriminator(chainer.Chain):
             self.bn3_0 = L.BatchNormalization(ch // 2, use_gamma=False)
             self.bn3_1 = L.BatchNormalization(ch // 1, use_gamma=False)
             self.bn4_0 = L.BatchNormalization(ch // 1, use_gamma=False)
+            # self.bn5_0 = L.BatchNormalization(1, use_gamma=False)
 
     def forward(self, x):
         h = add_noise(x)
-        h = F.elu(add_noise(self.c0_0(h)))
-        h = F.elu(add_noise(self.bn0_1(self.c0_1(h))))
-        h = F.elu(add_noise(self.bn1_0(self.c1_0(h))))
-        h = F.elu(add_noise(self.bn1_1(self.c1_1(h))))
-        h = F.elu(add_noise(self.bn2_0(self.c2_0(h))))
-        h = F.elu(add_noise(self.bn2_1(self.c2_1(h))))
-        h = F.elu(add_noise(self.bn3_0(self.c3_0(h))))
-        h = F.elu(add_noise(self.bn3_1(self.c3_1(h))))
-        h = F.elu(add_noise(self.bn4_0(self.c4_0(h))))
-        return self.l5(h)
+        h = F.relu(add_noise(self.c0_0(h)))
+        h = F.relu(add_noise(self.bn0_1(self.c0_1(h))))
+        h = F.relu(add_noise(self.bn1_0(self.c1_0(h))))
+        h = F.relu(add_noise(self.bn1_1(self.c1_1(h))))
+        h = F.relu(add_noise(self.bn2_0(self.c2_0(h))))
+        h = F.relu(add_noise(self.bn2_1(self.c2_1(h))))
+        h = F.relu(add_noise(self.bn3_0(self.c3_0(h))))
+        h = F.relu(add_noise(self.bn3_1(self.c3_1(h))))
+        h = F.sigmoid(add_noise(self.bn4_0(self.c4_0(h))))
+        x = self.l5(h)
+        return x
 
 
 
@@ -168,11 +170,27 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
     def loss_dis(self, dis, y_fake, y_real):
         
         batchsize = len(y_fake)
-        
+
+        # The softplus function is the smooth approximation of ReLU.
         L1 = F.sum(F.softplus(-y_real)) / batchsize # loss of the real samples
         L2 = F.sum(F.softplus(y_fake)) / batchsize # loss of the synthetic samples
+
         loss = L1 + L2
-        
+
+        # L1 = F.leaky_relu(F.mean_squared_error(y_real, np.ones((batchsize,1), dtype=np.float32)), 0.2)# loss of the real samples
+        # L2 = F.leaky_relu(F.mean_squared_error(y_fake, np.zeros((batchsize,1), dtype=np.float32)), 0.2) # loss of the synthetic samples
+
+        # np.ones((batchsize,1), dtype=np.float32)) -> array preenchido com 1's de shape=y_real=y_fake=(64,1)
+
+        # loss = (L1 + L2)/2
+
+
+        # L1 = F.mean_squared_error(F.relu(y_real), np.ones((batchsize,1), dtype=np.float32)) # loss of the real samples
+        # L2 = F.mean_squared_error(F.relu(y_fake), np.zeros((batchsize,1), dtype=np.float32)) # loss of the synthetic samples
+
+        # loss = L1 + L2
+
+
         chainer.report({'loss': loss}, dis)
         
         return loss
@@ -182,6 +200,13 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
     def loss_gen(self, gen, y_fake):        
         batchsize = len(y_fake)
         loss = F.sum(F.softplus(-y_fake)) / batchsize
+
+        # 1 is the value G wants D to believe for fake data
+        # loss = F.leaky_relu(F.mean_squared_error(y_fake, np.ones((batchsize,1), dtype=np.float32)),0.2) # loss of the synthetic samples
+
+        # loss = F.mean_squared_error(F.relu(y_fake), np.ones((batchsize,1), dtype=np.float32)) # loss of the synthetic samples
+
+
         chainer.report({'loss': loss}, gen)
         return loss
 
@@ -196,7 +221,7 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
         x_real = Variable(self.converter(batch, self.device)) / 255.
         # print (x_real.shape)
         # xp = chainer.backend.get_array_module(x_real.array)
-        xp = get_array_module(x_real.array)
+        xp = cuda.get_array_module(x_real.array)
 
         gen, dis = self.gen, self.dis
         batchsize = len(batch)
@@ -224,7 +249,7 @@ def out_generated_image(gen, dis, rows, cols, seed, dst):
         xp = gen.xp 
         z = Variable(xp.asarray(gen.make_hidden(n_images)))
         
-        with chainer.using_config('train', False):
+        with chainer.using_config('train', False): 
             x = gen(z)
         
         x = chainer.backends.cuda.to_cpu(x.array)
@@ -253,7 +278,7 @@ def out_generated_image(gen, dis, rows, cols, seed, dst):
 
 def main():
     parser = argparse.ArgumentParser(description='ChainerMN example: DCGAN')
-    parser.add_argument('--batchsize', '-b', type=int, default=64,
+    parser.add_argument('--batchsize', '-b', type=int, default=16,
                         help='Number of images in each mini-batch')
     parser.add_argument('--communicator', type=str,
                         default='pure_nccl', help='Type of communicator')
@@ -262,8 +287,8 @@ def main():
     parser.add_argument('--gpu', '-g', action='store_true',
                         help='Use GPU')
     parser.add_argument('--dataset', '-i', default='',
-                        help='Directory of image files. Default is cifar-10.')
-    parser.add_argument('--out', '-o', default='result',
+                        help='Directory of image files.')
+    parser.add_argument('--out', '-o', default='dcgan',
                         help='Directory to output the result')
     parser.add_argument('--gen_model', '-r', default='',
                         help='Use pre-trained generator for training')
@@ -273,9 +298,9 @@ def main():
                         help='Number of hidden units (z)')
     parser.add_argument('--seed', type=int, default=0,
                         help='Random seed of z at visualization stage')
-    parser.add_argument('--snapshot_interval', type=int, default=1000,
+    parser.add_argument('--snapshot_interval', type=int, default=200,
                         help='Interval of snapshot')
-    parser.add_argument('--display_interval', type=int, default=100,
+    parser.add_argument('--display_interval', type=int, default=10,
                         help='Interval of displaying log to console')
     args = parser.parse_args()
 
