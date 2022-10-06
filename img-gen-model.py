@@ -1,7 +1,6 @@
 import numpy as np
 
 import chainer
-# from chainer import backend
 from chainer import backends
 from chainer.backends import cuda
 from chainer import Function, FunctionNode, gradient_check, report, training, utils, Variable
@@ -19,48 +18,14 @@ import warnings
 
 from PIL import Image
 
-# tive de por esta funcao porque nao consigo importar chainer.backend
-# def get_array_module(*args):
-"""Gets an appropriate NumPy-compatible module to process arguments
-This function will return their data arrays' array module for
-:class:`~chainer.Variable` arguments.
-Args:
-    args: Values to determine whether NumPy, CuPy, or ChainerX should be
-        used.
-Returns:
-    module: :mod:`numpy`, :mod:`cupy`, or :mod:`chainerx` is returned based
-    on the types of the arguments.
-"""
-
-# if cuda.available:
-#     arrays = []
-#     for arg in args:
-#         # Unwrap arrays
-#         if isinstance(arg, chainer.variable.Variable):
-#             array = arg.data
-#         else:
-#             array = arg
-#         arrays.append(array)
-#     if cuda.available:
-#         return cuda.cupy.get_array_module(*arrays)
-# return np
-
-
 
 
 def add_noise(h, sigma=0.2):
     xp = cuda.get_array_module(h.array)
-    # xp = get_array_module(h.array)
-    # xp = backend.get_array_module(h.array)
     if chainer.config.train:
-        ''' random.randn(d0, d1, ..., dn) returns a sample (or samples) from the 'standard normal' distribution. 
-        For random samples from N(miu, sigma^2), where miu is the mean and sigma is the standard deviation, use
-        sigma * np.random.randn(...) + mu '''
-
         return h + sigma * xp.random.randn(*h.shape)
     else:
         return h
-
 
 
 
@@ -76,24 +41,16 @@ class Generator(chainer.Chain):
         with self.init_scope(): 
             w = chainer.initializers.Normal(wscale)
 
-            # linear layer = fully-connected layer = dense layer
             self.l0 = L.Linear(self.n_hidden, bottom_width * bottom_width * ch,
                                initialW=w) 
         
-            self.dc1 = L.Deconvolution2D(ch, ch // 2, 4, 2, 1, initialW=w) # k=4
-            self.dc2 = L.Deconvolution2D(ch // 2, ch // 4, 4, 2, 1, initialW=w) # k=4
-            self.dc3 = L.Deconvolution2D(ch // 4, ch // 8, 4, 2, 1, initialW=w) # k=4
-            self.dc4 = L.Deconvolution2D(ch // 8, ch // 16, 4, 2, 1, initialW=w) # k=4
-            self.dc5 = L.Deconvolution2D(ch // 16, ch // 32, 4, 2, 1, initialW=w) # k=4
+            self.dc1 = L.Deconvolution2D(ch, ch // 2, 4, 2, 1, initialW=w) 
+            self.dc2 = L.Deconvolution2D(ch // 2, ch // 4, 4, 2, 1, initialW=w) 
+            self.dc3 = L.Deconvolution2D(ch // 4, ch // 8, 4, 2, 1, initialW=w) 
+            self.dc4 = L.Deconvolution2D(ch // 8, ch // 16, 4, 2, 1, initialW=w) 
+            self.dc5 = L.Deconvolution2D(ch // 16, ch // 32, 4, 2, 1, initialW=w)
             self.dc6 = L.Deconvolution2D(ch // 32, 3, 4, 2, 1, initialW=w)
-            ''' if the original matrix is N x N, and the filter is F x F, the resulting matrix would be 
-            (N - F + 1) x (N - F + 1). This is because the pixels on the edges are used less than the pixels 
-            in the middle of the image. If we pad the image by (F - 1)/2 pixels on all sides, the size of N x
-            N will be preserved. '''
-            self.dc7 = L.Deconvolution2D(3, 3, 3, 1, 1, initialW=w) # k=4
-
-
-
+            self.dc7 = L.Deconvolution2D(3, 3, 3, 1, 1, initialW=w)
 
             self.bn0 = L.BatchNormalization(bottom_width * bottom_width * ch)
             self.bn1 = L.BatchNormalization(ch // 2)
@@ -111,9 +68,7 @@ class Generator(chainer.Chain):
             .astype(np.float32)
 
     
-    
-    def forward(self, z):
-        
+    def forward(self, z):       
         
         h = F.reshape(self.bn0(self.l0(z)), 
                       (len(z), self.ch, self.bottom_width, self.bottom_width))
@@ -155,10 +110,7 @@ class Discriminator(chainer.Chain):
             self.bn2_1 = L.BatchNormalization(ch // 2, use_gamma=False)
             self.bn3_0 = L.BatchNormalization(ch // 2, use_gamma=False)
             self.bn3_1 = L.BatchNormalization(ch // 1, use_gamma=False)
-            self.bn4_0 = L.BatchNormalization(ch // 1, use_gamma=False)
-            # self.bn5_0 = L.BatchNormalization(1, use_gamma=False)
-
-            
+            self.bn4_0 = L.BatchNormalization(ch // 1, use_gamma=False)            
            
 
     def forward(self, x):
@@ -177,7 +129,6 @@ class Discriminator(chainer.Chain):
 
 
 
-
 class DCGANUpdater(chainer.training.updaters.StandardUpdater):
     
     def __init__(self, *args, **kwargs):
@@ -186,60 +137,26 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
 
         
     def loss_dis(self, dis, y_fake, y_real):
-
-        ''' Dis Loss = [average dis score on real images] - [average dis score on fake images] '''
         
         batchsize = len(y_fake)
 
-        ''' The Wasserstein loss function can be implemented by multiplying the expected label for 
-        each sample by the predicted score (element wise), then calculating the mean.
-            Wasserstein Loss(Real Images) = -1 * Average Predicted Score
-            Wasserstein Loss(Fake Images) = 1 * Average Predicted Score
-        '''
-
-        # The softplus function is the smooth approximation of ReLU.
-        L1 = F.sum(F.softplus(-y_real)) / batchsize # loss of the real samples
-        L2 = F.sum(F.softplus(y_fake)) / batchsize # loss of the synthetic samples
-
+        L1 = F.sum(F.softplus(-y_real)) / batchsize 
+        L2 = F.sum(F.softplus(y_fake)) / batchsize
 
         loss = L1 + L2
-        # loss = L1 - L2
-
-        # L1 = F.leaky_relu(F.mean_squared_error(y_real, np.ones((batchsize,1), dtype=np.float32)), 0.2)# loss of the real samples
-        # L2 = F.leaky_relu(F.mean_squared_error(y_fake, np.zeros((batchsize,1), dtype=np.float32)), 0.2) # loss of the synthetic samples
-
-        # np.ones((batchsize,1), dtype=np.float32)) -> array preenchido com 1's de shape=y_real=y_fake=(64,1)
-
-        # loss = (L1 + L2)/2
-
-
-        # L1 = F.mean_squared_error(F.relu(y_real), np.ones((batchsize,1), dtype=np.float32)) # loss of the real samples
-        # L2 = F.mean_squared_error(F.relu(y_fake), np.zeros((batchsize,1), dtype=np.float32)) # loss of the synthetic samples
-
-        # loss = L1 + L2
-
-
-        chainer.report({'loss': loss}, dis)
         
+        chainer.report({'loss': loss}, dis)        
         return loss
 
-    
-    
+        
     def loss_gen(self, gen, y_fake):    
-        '''Generator Loss = -[average dis score on fake images]    '''
+    
         batchsize = len(y_fake)
         loss = F.sum(F.softplus(-y_fake)) / batchsize
-
-        # 1 is the value G wants D to believe for fake data
-        # loss = F.leaky_relu(F.mean_squared_error(y_fake, np.ones((batchsize,1), dtype=np.float32)),0.2) # loss of the synthetic samples
-
-        # loss = F.mean_squared_error(F.relu(y_fake), np.ones((batchsize,1), dtype=np.float32)) # loss of the synthetic samples
-
 
         chainer.report({'loss': loss}, gen)
         return loss
 
-    
     
     def update_core(self):
         
@@ -248,8 +165,7 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
 
         batch = self.get_iterator('main').next()
         x_real = Variable(self.converter(batch, self.device)) / 255.
-        # print (x_real.shape)
-        # xp = chainer.backend.get_array_module(x_real.array)
+       
         xp = cuda.get_array_module(x_real.array)
 
         gen, dis = self.gen, self.dis
@@ -258,9 +174,7 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
         y_real = dis(x_real)
 
         z = Variable(xp.asarray(gen.make_hidden(batchsize)))
-        # print (z.shape)
         x_fake = gen(z)
-        # print(x_fake.shape)
         y_fake = dis(x_fake)
 
         dis_optimizer.update(self.loss_dis, dis, y_fake, y_real)
@@ -268,9 +182,8 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
 
 
 
-
 def out_generated_image(gen, dis, rows, cols, seed, dst):
-    @chainer.training.make_extension() # make a new extension
+    @chainer.training.make_extension() 
     
     def make_image(trainer):
         np.random.seed(seed)
@@ -281,7 +194,6 @@ def out_generated_image(gen, dis, rows, cols, seed, dst):
         with chainer.using_config('train', False): 
             x = gen(z)
         
-        # x = chainer.backends.cuda.to_cpu(x.array)
         x = chainer.cuda.to_cpu(x.array)
         
         np.random.seed()
@@ -290,19 +202,18 @@ def out_generated_image(gen, dis, rows, cols, seed, dst):
     
         _, _, H, W = x.shape
         
-        x = x.reshape((rows, cols, 3, H, W)) # 3 colour channel 
+        x = x.reshape((rows, cols, 3, H, W))  
         x = x.transpose(0, 3, 1, 4, 2)
-        x = x.reshape((rows * H, cols * W, 3)) # 3 colour channel
+        x = x.reshape((rows * H, cols * W, 3)) 
 
-        preview_dir = '{}/preview'.format(dst) # '%s/preview' %dst
+        preview_dir = '{}/preview'.format(dst) 
         preview_path = preview_dir +\
             '/image{:0>8}.png'.format(trainer.updater.iteration) 
         if not os.path.exists(preview_dir):
             os.makedirs(preview_dir)
+
         Image.fromarray(x).save(preview_path)
     return make_image
-
-
 
 
 
@@ -335,18 +246,13 @@ def main():
     args = parser.parse_args()
 
     
-    
-    # Prepare ChainerMN communicator
     if args.gpu:
         if args.communicator == 'naive':
             print('Error: \'naive\' communicator does not support GPU.\n')
             exit(-1)
         
-        #chainermn.create_communicator() creates a communicator (is in charge of communication between workers)
         comm = chainermn.create_communicator(args.communicator)
 
-        '''Workers in a node have to use different GPUs. For this purpose, intra_rank property of communicators is useful. 
-        Each worker in a node is assigned a unique intra_rank starting from zero.'''
         device = comm.intra_rank
     else:
         if args.communicator != 'naive':
@@ -368,24 +274,17 @@ def main():
         print('==========================================')
 
    
-
-    # Set up a neural network to train -> making the instances of the generator and the discriminator
     gen = Generator(n_hidden=args.n_hidden)
     dis = Discriminator()
 
 
     if device >= 0:
-        # Make a specified GPU current
         chainer.cuda.get_device_from_id(device).use()
-        gen.to_gpu()  # Copy the model to the GPU
+        gen.to_gpu()  
         dis.to_gpu()
 
    
-
-    # Setup an optimizer
     def make_optimizer(model, comm, alpha=0.0002, beta1=0.5):
-
-        # Create a multi node optimizer from a standard Chainer optimizer.
 
         optimizer = chainermn.create_multi_node_optimizer(
             chainer.optimizers.Adam(alpha=alpha, beta1=beta1), comm)
@@ -395,25 +294,11 @@ def main():
         optimizer.add_hook(chainer.optimizer.WeightDecay(0.001), 'hook_dec')
         return optimizer
         
-    # def make_optimizer_gen(model, comm, lr=0.05):
-
-    #     # Create a multi node optimizer from a standard Chainer optimizer.
-
-    #     optimizer = chainermn.create_multi_node_optimizer(
-    #         chainer.optimizers.SGD(lr=lr), comm)
-
-    #     optimizer.setup(model)
-        
-    #     optimizer.add_hook(chainer.optimizer.WeightDecay(0.0001), 'hook_dec')
-    #     return optimizer
     
-    # make an optimizer for each model
     opt_gen = make_optimizer(gen, comm)
     opt_dis = make_optimizer(dis, comm)
 
     
-    # Split and distribute the dataset. Only worker 0 loads the whole dataset.
-    # Datasets of worker 0 are evenly split and distributed to all workers.
     if comm.rank == 0:
         if args.dataset == '':
             print('Please provide the dataset directory')
@@ -429,13 +314,10 @@ def main():
 
     train = chainermn.scatter_dataset(train, comm)
 
-        
-    # Setup an iterator
+   
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
 
     
-    
-    # Setup an updater
     updater = DCGANUpdater(
         models=(gen, dis),
         iterator=train_iter,
@@ -444,18 +326,13 @@ def main():
         device=device)
 
     
-    
-    # Setup a trainer
     trainer = training.Trainer(updater, (args.epoch, 'epoch'), out=args.out)
     
    
-   
-    '''Some display and output extensions are necessary only for one worker, otherwise, there would just be repeated outputs'''
     if comm.rank == 0:
         snapshot_interval = (args.snapshot_interval, 'iteration')
         display_interval = (args.display_interval, 'iteration')
-        
-        
+                
         trainer.extend(extensions.snapshot_object(
             gen, 'gen_iter_{.updater.iteration}.npz'),
             trigger=snapshot_interval)
@@ -469,8 +346,7 @@ def main():
             'epoch', 'iteration', 'gen/loss', 'dis/loss', 'elapsed_time',
         ]), trigger=display_interval)
 
-        trainer.extend(extensions.ProgressBar(update_interval=10))
-        
+        trainer.extend(extensions.ProgressBar(update_interval=10))        
         
         trainer.extend(
             out_generated_image(
@@ -479,16 +355,14 @@ def main():
             trigger=snapshot_interval)
 
 
-
-    # Start the training using pre-trained model, saved by snapshot_object
     if args.gen_model:
         chainer.serializers.load_npz(args.gen_model, gen)
     if args.dis_model:
         chainer.serializers.load_npz(args.dis_model, dis)
    
     
-    # Run the training
     trainer.run()
+    
 
 if __name__ == '__main__':
     main()
