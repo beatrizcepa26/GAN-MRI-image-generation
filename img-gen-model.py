@@ -19,7 +19,7 @@ import warnings
 from PIL import Image
 
 
-
+# add some noise to every intermediate outputs of D before giving them to the next layers
 def add_noise(h, sigma=0.2):
     xp = cuda.get_array_module(h.array)
     if chainer.config.train:
@@ -29,6 +29,7 @@ def add_noise(h, sigma=0.2):
 
 
 
+# Generator architecture
 class Generator(chainer.Chain):
     
     def __init__(self, n_hidden, bottom_width=4, ch=1024, wscale=0.02):
@@ -61,7 +62,7 @@ class Generator(chainer.Chain):
             self.bn6 = L.BatchNormalization(3)
 
     
-    
+    # uniform noise distribution Z fed to the Generator
     def make_hidden(self, batchsize):
         
         return np.random.uniform(-1, 1, (batchsize, self.n_hidden, 1, 1))\
@@ -83,6 +84,7 @@ class Generator(chainer.Chain):
 
 
 
+# Discriminator architecture
 class Discriminator(chainer.Chain):
 
     def __init__(self, bottom_width=4, ch=1024, wscale=0.02):
@@ -129,13 +131,15 @@ class Discriminator(chainer.Chain):
 
 
 
+# Updater
 class DCGANUpdater(chainer.training.updaters.StandardUpdater):
     
     def __init__(self, *args, **kwargs):
         self.gen, self.dis = kwargs.pop('models') 
         super(DCGANUpdater, self).__init__(*args, **kwargs)
 
-        
+
+    # loss of the Discriminator    
     def loss_dis(self, dis, y_fake, y_real):
         
         batchsize = len(y_fake)
@@ -148,7 +152,8 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
         chainer.report({'loss': loss}, dis)        
         return loss
 
-        
+
+    # loss of the Generator     
     def loss_gen(self, gen, y_fake):    
     
         batchsize = len(y_fake)
@@ -158,8 +163,10 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
         return loss
 
     
+    # generate intermediate samples
     def update_core(self):
         
+        # access model optimizers
         gen_optimizer = self.get_optimizer('gen')
         dis_optimizer = self.get_optimizer('dis')
 
@@ -182,6 +189,7 @@ class DCGANUpdater(chainer.training.updaters.StandardUpdater):
 
 
 
+# visualize generated images
 def out_generated_image(gen, dis, rows, cols, seed, dst):
     @chainer.training.make_extension() 
     
@@ -246,6 +254,7 @@ def main():
     args = parser.parse_args()
 
     
+    # prepare ChainerMN communicator
     if args.gpu:
         if args.communicator == 'naive':
             print('Error: \'naive\' communicator does not support GPU.\n')
@@ -273,17 +282,20 @@ def main():
         print('Num epoch: {}'.format(args.epoch))
         print('==========================================')
 
-   
+    
+    # set up a neural network by making the instances of the Generator and the Discriminator
     gen = Generator(n_hidden=args.n_hidden)
     dis = Discriminator()
 
 
+    # make a specified GPU current
     if device >= 0:
         chainer.cuda.get_device_from_id(device).use()
         gen.to_gpu()  
         dis.to_gpu()
 
    
+    # set up a multi node optimizer
     def make_optimizer(model, comm, alpha=0.0002, beta1=0.5):
 
         optimizer = chainermn.create_multi_node_optimizer(
@@ -295,10 +307,12 @@ def main():
         return optimizer
         
     
+    # create an optimizer for the Generator and Discriminator
     opt_gen = make_optimizer(gen, comm)
     opt_dis = make_optimizer(dis, comm)
 
     
+    # split and distribute the dataset (only worker 0 loads the whole dataset)
     if comm.rank == 0:
         if args.dataset == '':
             print('Please provide the dataset directory')
@@ -312,12 +326,15 @@ def main():
     else:
         train = None
 
+    # dataset of worker 0 is evenly split and distributed to all workers.
     train = chainermn.scatter_dataset(train, comm)
 
    
+    # setup an iterator
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
 
     
+    # setup an updater
     updater = DCGANUpdater(
         models=(gen, dis),
         iterator=train_iter,
@@ -326,13 +343,18 @@ def main():
         device=device)
 
     
+    # setup an trainer
     trainer = training.Trainer(updater, (args.epoch, 'epoch'), out=args.out)
     
    
+    # some display and output extensions are necessary only for one worker, otherwise 
+        # there would just be repeated outputs
     if comm.rank == 0:
         snapshot_interval = (args.snapshot_interval, 'iteration')
         display_interval = (args.display_interval, 'iteration')
                 
+        # save only model parameters (instead of saving whole trainer module, only the network 
+            # models are saved)
         trainer.extend(extensions.snapshot_object(
             gen, 'gen_iter_{.updater.iteration}.npz'),
             trigger=snapshot_interval)
@@ -340,12 +362,15 @@ def main():
             dis, 'dis_iter_{.updater.iteration}.npz'),
             trigger=snapshot_interval)
 
+        # output the accumulated results to a log file
         trainer.extend(extensions.LogReport(trigger=display_interval))
 
+        # print the accumulated results
         trainer.extend(extensions.PrintReport([
             'epoch', 'iteration', 'gen/loss', 'dis/loss', 'elapsed_time',
         ]), trigger=display_interval)
 
+        # print a progress bar and recent training status
         trainer.extend(extensions.ProgressBar(update_interval=10))        
         
         trainer.extend(
@@ -355,12 +380,14 @@ def main():
             trigger=snapshot_interval)
 
 
+    # start the training using pre-trained model saved by snapshot_object
     if args.gen_model:
         chainer.serializers.load_npz(args.gen_model, gen)
     if args.dis_model:
         chainer.serializers.load_npz(args.dis_model, dis)
    
     
+    # run the training
     trainer.run()
     
 
