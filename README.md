@@ -1,5 +1,5 @@
 # Medical Image Generation
-This repository contains the code and files related with the development of my dissertation entitled **"Deep Learning for Image Generation"**.
+This repository contains the code and files for the paper presented at ENBENG 2023 entitled [Generative Adversarial Networks in Healthcare: A Case Study on MRI Image Generation](https://ieeexplore.ieee.org/document/10175330).
 
 The model developed is based on the DCGAN architecture proposed by Radford et al. and receives as input real MRI image scans of the Brain Tumor Segmentation (BraTS) 2020 Dataset and generates several stacks of 100 3-channel 2D images of size 256×256 pixels. Each one contains an axial view of a brain with a tumor where, similarly to the original T2-FLAIR MRI image scans, the grey area represents the brain tissue, and the white area represents the tumoral tissue.
 
